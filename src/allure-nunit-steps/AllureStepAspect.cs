@@ -1,7 +1,12 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Dynamic;
+using System.Linq;
 using System.Reflection;
 using Allure.Commons;
 using AspectInjector.Broker;
+using SmartFormat;
 
 namespace NUnit.Allure.Steps
 {
@@ -16,9 +21,13 @@ namespace NUnit.Allure.Steps
             [Argument(Source.Target)] Func<object[], object> method)
         {
             var stepName = methodBase.GetCustomAttribute<AllureStepAttribute>().StepName;
+            var parametersWithValue = this.GetArgumentsDictionary(methodBase, arguments);
+
             var stepResult = string.IsNullOrEmpty(stepName)
-                ? new StepResult {name = name}
-                : new StepResult {name = stepName};
+                ? new StepResult { name = name }
+                : new StepResult { name = Smart.Format(stepName, parametersWithValue) };
+
+            stepResult.parameters = parametersWithValue.Select(p => new Parameter { name = p.Key, value = p.Value.ToString() }).ToList();
 
             object result;
             try
@@ -42,6 +51,32 @@ namespace NUnit.Allure.Steps
             }
 
             return result;
+        }
+
+        private IDictionary<string, object> GetArgumentsDictionary(MethodBase method, object[] arguments)
+        {
+            var parameters = method.GetParameters();
+            var result = parameters.Select(p => p.Name)
+                .Zip(arguments, (p, a) => new KeyValuePair<string, object>(p, a))
+                .ToDictionary(kv => kv.Key, kv => kv.Value ?? "<null>");
+
+            parameters
+                .Where(p => p.CustomAttributes.Select(a => a.AttributeType.Name).Contains("ParamArrayAttribute"))
+                .Select(p => p.Name).ToList()
+                .ForEach(arg => result[arg] = this.ParamsArgumentToString(result[arg]));
+
+            return result;
+        }
+
+        private string ParamsArgumentToString(object obj)
+        {
+            var result = new List<object>();
+            foreach (var o in (IEnumerable)obj)
+            {
+                result.Add(o as object);
+            }
+
+            return "[" + string.Join(", ", result) + "]";
         }
     }
 }
